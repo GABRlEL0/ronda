@@ -56,21 +56,49 @@ Si la consola del navegador muestra `The query requires an index`, hay que crear
 - `products`: `isActive` (Ascending) + `name` (Ascending)
 - `invites`: `used` (Ascending) + `createdAt` (Descending)
 
-## Despliegue en VodaHost
-Este proyecto genera una SPA (Single Page Application) estática.
-1. Ejecuta `npm run build`.
-2. Sube el contenido de la carpeta `dist` a tu hosting.
-3. **Importante:** Asegúrate de configurar tu servidor para redirigir todas las rutas a `index.html` (Rewrite Rule), ya que usamos React Router.
-
-### Apache (.htaccess)
-Se incluye `public/.htaccess` para que Vite lo copie dentro de `dist/` y Apache haga fallback a `index.html` en rutas como `/driver` o `/admin`.
-
-### Deploy en subcarpeta (/ronda/)
-Si la app se publica en un subpath (ej: `https://example.com/ronda/`):
-- Configurar `VITE_BASE=/ronda/` antes del build.
-- El `.htaccess` incluido usa `RewriteBase /ronda/`.
-
 ## Registro de usuarios (sin envio automatico)
 - El admin crea un registro pendiente desde /admin/usuarios.
 - Se comparte manualmente el link de registro.
 - La invitacion vence al fin del dia.
+
+---
+
+## Deploy
+
+### Repositorio GitHub
+- URL: https://github.com/GABRlEL0/ronda
+- Rama principal: `main`
+
+### Hosting de producción
+- URL pública: **https://duts.com.ar/ronda/**
+- Plataforma: cPanel compartido (FTP)
+- Usuario FTP: `ronda@duts.com.ar`
+- Host FTP: `duts.com.ar`
+- El root del FTP de este usuario apunta a `duts.com.ar/ronda/` — **subir siempre al `/` del FTP**.
+
+> ⚠️ **IMPORTANTE — base path:**
+> La app vive en `/ronda/`, por eso el build **siempre** debe hacerse con `VITE_BASE=/ronda/`.
+> Si se usa `VITE_BASE=/` los assets darán 404 porque el servidor los buscará en `duts.com.ar/assets/`
+> en lugar de `duts.com.ar/ronda/assets/`.
+
+### Comando de deploy (un solo paso)
+```bash
+./deploy.sh "descripción del cambio"
+```
+
+El script `deploy.sh` hace todo en orden:
+1. Build con `VITE_BASE=/ronda/`
+2. `git add -A && git commit && git push origin main`
+3. `lftp mirror` del `dist/` al FTP (`duts.com.ar`)
+
+> **Requisito:** tener `lftp` instalado (`brew install lftp`).
+
+### También disponible vía Firebase Hosting (secundario)
+- URL: https://sodero-app.web.app
+- Proyecto Firebase: `sodero-app`
+- Deploy: `firebase deploy --only hosting --project sodero-app`
+  (requiere `npm run build` previo con `VITE_BASE=/ronda/`)
+
+### Apache (SPA routing)
+Se incluye `public/.htaccess` para que Vite lo copie dentro de `dist/` y Apache haga
+fallback a `index.html` en rutas como `/driver` o `/admin`.
