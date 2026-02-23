@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userExists() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isActive() {
+      return userExists() && userDoc().data.active == true;
+    }
+
+    function isAdmin() {
+      return isActive() && userDoc().data.role == 'admin';
+    }
+
+    function isDriver() {
+      return isActive() && userDoc().data.role == 'driver';
+    }
+
+    match /users/{userId} {
+      allow read: if isAdmin() || request.auth.uid == userId;
+      // User documents are created by the user at /register after a valid invite.
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/invites/$(request.auth.token.email))
+        && get(/databases/$(database)/documents/invites/$(request.auth.token.email)).data.used == false;
+      allow update, delete: if isAdmin();
+    }
+
+    match /clients/{clientId} {
+      allow read: if isActive();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || isDriver();
+    }
+
+    match /products/{productId} {
+      allow read: if isActive();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isDriver()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock'])
+          && request.resource.data.stock is number
+          && request.resource.data.stock >= 0
+          && request.resource.data.stock <= resource.data.stock);
+    }
+
+    match /orders/{orderId} {
+      allow create: if isActive()
+        && request.resource.data.driverId == request.auth.uid;
+      allow read: if isAdmin()
+        || (isActive() && resource.data.driverId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /invites/{email} {
+      // Admin can manage all invites; users can read their own by email after sign-in.
+      allow read: if isAdmin()
+        || (signedIn() && request.auth.token.email == email);
+      allow create, delete: if isAdmin();
+      // Invite can be marked used by the invited user right after /register.
+      allow update: if isAdmin()
+        || (signedIn()
+          && request.auth.token.email == email
+          && resource.data.used == false
+          && request.resource.data.used == true
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.email == resource.data.email);
+    }
+  }
+}

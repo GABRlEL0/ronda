@@ -1,0 +1,10 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # App is deployed under a subpath (e.g. https://example.com/ronda/).
+  RewriteBase /ronda/
+
+  # If the requested resource doesn't exist, serve index.html (SPA fallback).
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [L]
+</IfModule>
