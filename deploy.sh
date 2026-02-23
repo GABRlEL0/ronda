@@ -12,7 +12,7 @@ FTP_REMOTE_DIR="/"
 COMMIT_MSG="${1:-"chore: deploy $(date +'%Y-%m-%d %H:%M')"}"
 
 echo "▶ Build de producción..."
-VITE_BASE=/ npm run build
+VITE_BASE=/ronda/ npm run build
 
 echo "▶ Commit y push a GitHub..."
 git add -A
