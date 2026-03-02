@@ -220,6 +220,7 @@ export default function DriverHome() {
   const [toast, setToast] = useState("");
   const [visited, setVisited] = useState(() => loadVisited());
   const [showCompleted, setShowCompleted] = useState(false);
+  const [dayFilter, setDayFilter] = useState("");
   const [savingOrder, setSavingOrder] = useState(false);
   const [offRouteOpen, setOffRouteOpen] = useState(false);
   const [offRouteQuery, setOffRouteQuery] = useState("");
@@ -282,6 +283,29 @@ export default function DriverHome() {
   const completedClients = useMemo(() => {
     return clients.filter((client) => Boolean(visited[client.id]));
   }, [clients, visited]);
+
+  const normalizedDayFilter = dayFilter.trim().toLowerCase();
+  const isFilteringDayClients = normalizedDayFilter.length > 0;
+
+  const visiblePendingClients = useMemo(() => {
+    if (!isFilteringDayClients) return pendingClients;
+    return pendingClients.filter((client) => {
+      const haystack = `${client.name ?? ""} ${client.address ?? ""} ${
+        client.phone ?? ""
+      }`.toLowerCase();
+      return haystack.includes(normalizedDayFilter);
+    });
+  }, [pendingClients, isFilteringDayClients, normalizedDayFilter]);
+
+  const visibleCompletedClients = useMemo(() => {
+    if (!isFilteringDayClients) return completedClients;
+    return completedClients.filter((client) => {
+      const haystack = `${client.name ?? ""} ${client.address ?? ""} ${
+        client.phone ?? ""
+      }`.toLowerCase();
+      return haystack.includes(normalizedDayFilter);
+    });
+  }, [completedClients, isFilteringDayClients, normalizedDayFilter]);
 
   const openClient = (client) => {
     if (visited[client.id]) return;
@@ -398,7 +422,7 @@ export default function DriverHome() {
             </p>
           </div>
           <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700">
-            {pendingClients.length}/{clients.length}
+            {visiblePendingClients.length}/{clients.length}
           </div>
         </div>
 
@@ -431,36 +455,64 @@ export default function DriverHome() {
           })}
         </div>
 
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <Search size={16} className="text-slate-400" />
+            <input
+              type="text"
+              value={dayFilter}
+              onChange={(e) => setDayFilter(e.target.value)}
+              placeholder="Buscar cliente por nombre, direccion o telefono"
+              className="w-full bg-transparent text-sm font-medium text-slate-900 outline-none placeholder:text-slate-400"
+            />
+          </label>
+        </div>
+
         <div className="mt-5 space-y-3">
           {loadingClients ? (
             <p className="text-sm text-slate-500">Cargando ruta...</p>
-          ) : pendingClients.length === 0 ? (
+          ) : visiblePendingClients.length === 0 ? (
             <p className="text-sm text-slate-500">
-              No hay clientes pendientes para hoy.
+              {isFilteringDayClients
+                ? "No hay clientes que coincidan con la busqueda."
+                : "No hay clientes pendientes para hoy."}
             </p>
           ) : (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={pendingIds}
-                strategy={verticalListSortingStrategy}
-              >
+            isFilteringDayClients ? (
                 <div className="space-y-3">
-                  {pendingClients.map((client, idx) => (
-                    <SortableClientCard
+                  {visiblePendingClients.map((client) => (
+                    <ClientCard
                       key={client.id}
                       client={client}
-                      index={idx}
                       onOpen={() => openClient(client)}
                       onWhatsApp={(c) => setWhatsappClient(c)}
                     />
                   ))}
                 </div>
-              </SortableContext>
-            </DndContext>
+              ) : (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={pendingIds}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-3">
+                    {pendingClients.map((client, idx) => (
+                      <SortableClientCard
+                        key={client.id}
+                        client={client}
+                        index={idx}
+                        onOpen={() => openClient(client)}
+                        onWhatsApp={(c) => setWhatsappClient(c)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+              )
           )}
         </div>
 
@@ -508,7 +560,7 @@ export default function DriverHome() {
               </p>
             ) : (
               <div className="mt-3 space-y-3">
-                {completedClients.map((client) => (
+                {visibleCompletedClients.map((client) => (
                   <div
                     key={client.id}
                     className="rounded-3xl border border-slate-200 bg-white p-4"
@@ -900,6 +952,76 @@ function SortableClientCard({ client, index, onOpen, onWhatsApp }) {
               {client.name}
             </p>
           </div>
+          <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-600">
+            <span
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${(() => {
+                const status = waterStatus(client);
+                if (status === "green") return "bg-emerald-500";
+                if (status === "yellow") return "bg-amber-400";
+                if (status === "red") return "bg-rose-500";
+                return "bg-slate-300";
+              })()}`}
+              title="Estado de agua"
+            />
+            <span className="truncate">{client.address}</span>
+          </p>
+          <div className="mt-1 flex items-center gap-3 text-xs font-semibold text-slate-600">
+            <span>Deuda: ${Number(client.balanceMoney ?? 0).toFixed(0)}</span>
+            <span className="text-slate-500">
+              Envases: {Number(client.balanceBottles ?? 0)}
+            </span>
+            <span className="text-slate-500">
+              🚰 {Number(client.dispenserCount ?? 0)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <a
+            href={buildMapsUrl(client)}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm"
+            title="Abrir Maps"
+          >
+            <MapPin size={20} className="text-slate-600" />
+          </a>
+          {client.phone ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onWhatsApp?.(client);
+              }}
+              className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm"
+              title="WhatsApp"
+            >
+              <MessageCircle size={20} />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClientCard({ client, onOpen, onWhatsApp }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen();
+      }}
+      className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-3 shadow-md shadow-slate-200/60 transition active:scale-[0.99]"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-semibold text-slate-900">
+            {client.name}
+          </p>
           <p className="mt-1 flex items-center gap-2 truncate text-sm text-slate-600">
             <span
               className={`h-2.5 w-2.5 shrink-0 rounded-full ${(() => {
