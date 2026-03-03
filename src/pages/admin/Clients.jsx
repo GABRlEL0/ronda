@@ -65,6 +65,9 @@ export default function AdminClients() {
   const [form, setForm] = useState(emptyForm);
   const [toast, setToast] = useState("");
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
     const unsubscribe = listenClients((items) => {
@@ -222,6 +225,21 @@ export default function AdminClients() {
     return items;
   }, [clients, sort]);
 
+  const filteredClients = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return sortedClients;
+    return sortedClients.filter((client) =>
+      String(client?.name ?? "").toLowerCase().includes(query)
+    );
+  }, [search, sortedClients]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredClients.length / pageSize));
+
+  const paginatedClients = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredClients.slice(start, start + pageSize);
+  }, [filteredClients, page, pageSize]);
+
   const toggleSort = (key) => {
     setSort((prev) => {
       if (prev.key === key) {
@@ -230,6 +248,16 @@ export default function AdminClients() {
       return { key, dir: "asc" };
     });
   };
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, pageSize]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   return (
     <section className="space-y-6">
@@ -249,6 +277,43 @@ export default function AdminClients() {
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-md">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <line x1="16.65" y1="16.65" x2="21" y2="21" />
+              </svg>
+            </span>
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar cliente por nombre"
+              className="h-10 rounded-xl py-2 pl-10 pr-3 text-sm"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+            Por pagina
+            <select
+              value={pageSize}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="text-xs tracking-wide text-slate-400">
@@ -330,8 +395,14 @@ export default function AdminClients() {
                     Todavía no hay clientes.
                   </td>
                 </tr>
+              ) : filteredClients.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-6 text-slate-400" colSpan={7}>
+                    No hay clientes que coincidan con la busqueda.
+                  </td>
+                </tr>
               ) : (
-                sortedClients.map((client) => (
+                paginatedClients.map((client) => (
                   <tr
                     key={client.id}
                     className="border-t border-slate-100 text-slate-700"
@@ -389,6 +460,35 @@ export default function AdminClients() {
             </tbody>
           </table>
         </div>
+        {!loading && filteredClients.length > 0 ? (
+          <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Mostrando {Math.min((page - 1) * pageSize + 1, filteredClients.length)}-
+              {Math.min(page * pageSize, filteredClients.length)} de {filteredClients.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                disabled={page === 1}
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <span className="text-xs font-semibold text-slate-500">
+                Pagina {page} de {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={page === totalPages}
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {open ? (
