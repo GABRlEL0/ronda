@@ -143,6 +143,22 @@ function waterStatus(client) {
 function QtyStepper({ value, onChange, max }) {
   const maxValue = Number.isFinite(max) ? max : null;
   const canInc = maxValue == null || value < maxValue;
+
+  const handleDirectInput = (event) => {
+    const raw = event.target.value;
+    if (raw === "") {
+      onChange(0);
+      return;
+    }
+
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) return;
+
+    const next =
+      maxValue == null ? Math.max(0, parsed) : Math.min(maxValue, Math.max(0, parsed));
+    onChange(next);
+  };
+
   return (
     <div className="flex items-center gap-3">
       <button
@@ -152,9 +168,18 @@ function QtyStepper({ value, onChange, max }) {
       >
         -
       </button>
-      <div className="w-12 text-center text-xl font-semibold text-slate-900">
-        {value}
-      </div>
+      <input
+        type="number"
+        min="0"
+        max={maxValue ?? undefined}
+        step="1"
+        inputMode="numeric"
+        value={value}
+        onChange={handleDirectInput}
+        onFocus={(event) => event.target.select()}
+        className="h-12 w-20 rounded-2xl border border-slate-200 bg-white px-2 text-center text-xl font-semibold text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+        aria-label="Cantidad"
+      />
       <button
         type="button"
         onClick={() =>
