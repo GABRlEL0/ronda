@@ -46,15 +46,19 @@ Ejecutar:
 - Correr:
   - `npm run seed:clients`
 
-## Checklist Firestore (Indices)
-Si la consola del navegador muestra `The query requires an index`, hay que crearlo en Firebase Console:
+## Firestore (reglas e indices)
+Las reglas (`firestore.rules`) y los indices (`firestore.indexes.json`) NO se suben con
+`deploy.sh`. Se publican con Firebase CLI:
 
-- `clients`: `routeDay` (Ascending) + `routeOrder` (Ascending)
-- `clients`: `routeDay` (Ascending) + `name` (Ascending)
-- `clients`: `routeDays` (Array-contains) + `routeOrder` (Ascending)
-- `clients`: `routeDays` (Array-contains) + `name` (Ascending)
-- `products`: `isActive` (Ascending) + `name` (Ascending)
-- `invites`: `used` (Ascending) + `createdAt` (Descending)
+```bash
+firebase deploy --only firestore:rules --project sodero-app
+firebase deploy --only firestore:indexes --project sodero-app
+```
+
+## Diagnostico de envases
+`npm run diagnose:bottles` (con `SEED_EMAIL`/`SEED_PASSWORD` de un admin) lista, solo
+lectura, los clientes cuyo saldo de envases quedo mal por el bug de devoluciones en
+entregas con varios productos.
 
 ## Registro de usuarios (sin envio automatico)
 - El admin crea un registro pendiente desde /admin/usuarios.
@@ -81,6 +85,9 @@ Si la consola del navegador muestra `The query requires an index`, hay que crear
 > Si se usa `VITE_BASE=/` los assets darán 404 porque el servidor los buscará en `duts.com.ar/assets/`
 > en lugar de `duts.com.ar/ronda/assets/`.
 
+### Credenciales FTP
+Van en `.env.deploy` (ignorado por git). Copiar `.env.deploy.example` y completar `FTP_PASS`.
+
 ### Comando de deploy (un solo paso)
 ```bash
 ./deploy.sh "descripción del cambio"
@@ -91,7 +98,7 @@ El script `deploy.sh` hace todo en orden:
 2. `git add -A && git commit && git push origin main`
 3. `lftp mirror` del `dist/` al FTP (`duts.com.ar`)
 
-> **Requisito:** tener `lftp` instalado (`brew install lftp`).
+> **Requisitos:** tener `lftp` instalado (`brew install lftp`) y `.env.deploy` creado.
 
 ### También disponible vía Firebase Hosting (secundario)
 - URL: https://sodero-app.web.app

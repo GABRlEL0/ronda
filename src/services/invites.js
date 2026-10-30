@@ -44,22 +44,18 @@ export function listenPendingInvites(callback) {
   );
   return onSnapshot(q, (snapshot) => {
     const nowMs = Date.now();
-    const expired = [];
-    const items = snapshot.docs
-      .map((d) => ({ id: d.id, ...d.data(), __ref: d.ref }))
-      .filter((item) => {
-        if (isExpired(item, nowMs)) {
-          expired.push(item);
-          return false;
-        }
-        return true;
-      })
-      .map(({ __ref, ...rest }) => rest);
+    const expiredRefs = [];
+    const items = [];
+    snapshot.docs.forEach((d) => {
+      const item = { id: d.id, ...d.data() };
+      if (isExpired(item, nowMs)) expiredRefs.push(d.ref);
+      else items.push(item);
+    });
 
-    if (expired.length > 0) {
+    if (expiredRefs.length > 0) {
       const batch = writeBatch(db);
-      expired.forEach((inv) => batch.delete(inv.__ref));
-      batch.commit().catch(() => {});
+      expiredRefs.forEach((ref) => batch.delete(ref));
+      batch.commit().catch((error) => console.warn("No se pudieron limpiar invitaciones vencidas.", error));
     }
 
     callback(items);

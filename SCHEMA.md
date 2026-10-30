@@ -40,6 +40,7 @@ Documento por usuario para permisos.
   "routeDays": ["Lunes", "Jueves"],
   "routeDay": "Lunes (legacy)",
   "routeOrder": 0,
+  "routeOrderByDay": { "Lunes": 0, "Jueves": 5 },
   "balanceMoney": 1500,
   "balanceDelta": 0,
   "balanceBottles": 2,
@@ -65,6 +66,7 @@ Registro inmutable (historial) de cada visita.
   "totalPrice": 10000,
   "paymentAmount": 5000,
   "paymentMethod": "Efectivo | Transferencia | null",
+  "bottlesReturned": 2,
   "newBalanceMoney": 6500,
   "newBalanceBottles": 2,
   "items": [
@@ -72,7 +74,6 @@ Registro inmutable (historial) de cada visita.
       "productId": "id",
       "name": "Bidon 20L",
       "qtyDelivered": 2,
-      "qtyReturned": 2,
       "priceUnit": 5000,
       "isInfiniteStock": false,
       "isWater": true
@@ -80,6 +81,13 @@ Registro inmutable (historial) de cada visita.
   ]
 }
 ```
+
+Notas:
+- `bottlesReturned` es el total de envases devueltos en la visita. Ordenes anteriores
+  a la auditoria (oct-2026) no lo tienen y guardaban `items[].qtyReturned` repetido en
+  cada item (ver `scripts/diagnose-bottles.mjs`).
+- `routeOrderByDay` guarda el orden por dia (clientes con varios dias). Si falta,
+  se usa `routeOrder`.
 
 ## invites
 Pendientes de registro (link compartido manualmente).
@@ -95,8 +103,8 @@ Pendientes de registro (link compartido manualmente).
 ```
 
 ## Indices Requeridos (Firestore)
-Si la consola muestra `The query requires an index`, crear:
-- `clients`: `routeDay` (Ascending) + `routeOrder` (Ascending)
-- `clients`: `routeDay` (Ascending) + `name` (Ascending)
-- `products`: `isActive` (Ascending) + `name` (Ascending)
+Definidos en `firestore.indexes.json`:
 - `invites`: `used` (Ascending) + `createdAt` (Descending)
+
+Las listas de clientes por dia ya no usan `orderBy` en Firestore (se ordena en el
+cliente), asi que no requieren indices compuestos.

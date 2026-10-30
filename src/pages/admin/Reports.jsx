@@ -16,31 +16,12 @@ import Toast from "../../components/ui/Toast";
 import { fetchOrdersByDateRange } from "../../services/orders";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../firebase/config";
-
-function ymd(date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function startOfDay(date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function endOfDay(date) {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
+import { endOfDay, parseYmd, startOfDay, toDate, toYmd } from "../../lib/dates";
 
 function defaultMonthRange() {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return { from: ymd(from), to: ymd(to) };
+  return { from: toYmd(from), to: toYmd(now) };
 }
 
 async function loadLookupMaps() {
@@ -99,26 +80,39 @@ export default function Reports() {
     return () => ro.disconnect();
   }, []);
 
-  const run = async () => {
-    setLoading(true);
-    try {
-      const from = startOfDay(new Date(range.from));
-      const to = endOfDay(new Date(range.to));
-      const items = await fetchOrdersByDateRange({ from, to });
-      setOrders(items);
-    } catch (err) {
-      console.error(err);
-      setToast("No se pudieron cargar las ordenes (revisar indices).");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fromDate = parseYmd(range.from);
+  const toDateValue = parseYmd(range.to);
+  const rangeError = !fromDate || !toDateValue
+    ? "Elegí ambas fechas."
+    : fromDate > toDateValue
+    ? "La fecha 'Desde' es posterior a 'Hasta'."
+    : "";
 
   useEffect(() => {
-    if (!range.from || !range.to) return;
-    run();
+    if (rangeError) return undefined;
+    // Ignora respuestas de un rango anterior si el usuario cambia las fechas rápido.
+    let cancelled = false;
+    setLoading(true);
+    fetchOrdersByDateRange({
+      from: startOfDay(fromDate),
+      to: endOfDay(toDateValue),
+    })
+      .then((items) => {
+        if (!cancelled) setOrders(items);
+      })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setToast("No se pudieron cargar las ordenes (revisar indices).");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // fromDate/toDateValue se derivan de range.from/range.to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range.from, range.to]);
+  }, [range.from, range.to, rangeError]);
 
   const kpis = useMemo(() => {
     let totalSales = 0;
@@ -127,8 +121,12 @@ export default function Reports() {
     let collectedTransfer = 0;
     let waterUnits = 0;
     let otherUnits = 0;
+    let completed = 0;
+    let failed = 0;
 
     for (const o of orders) {
+      if (o.visitStatus === "Fallida") failed += 1;
+      else completed += 1;
       totalSales += Number(o.totalPrice ?? 0);
       collected += Number(o.paymentAmount ?? 0);
       if (o.paymentMethod === "Transferencia") {
@@ -152,15 +150,17 @@ export default function Reports() {
       collectedTransfer,
       waterUnits,
       otherUnits,
+      completed,
+      failed,
     };
   }, [orders]);
 
   const salesByDay = useMemo(() => {
     const map = new Map();
     for (const o of orders) {
-      const d =
-        typeof o.date?.toDate === "function" ? o.date.toDate() : new Date();
-      const key = ymd(d);
+      const d = toDate(o.date);
+      if (!d) continue;
+      const key = toYmd(d);
       map.set(key, (map.get(key) || 0) + Number(o.totalPrice ?? 0));
     }
     return Array.from(map.entries()).map(([day, total]) => ({ day, total }));
@@ -182,8 +182,7 @@ export default function Reports() {
 
   const downloadXlsx = () => {
     const rows = orders.map((o) => {
-      const d =
-        typeof o.date?.toDate === "function" ? o.date.toDate() : new Date();
+      const d = toDate(o.date);
       const clientName =
         lookup.clients?.[o.clientId]?.name || String(o.clientId || "");
       const driverName =
@@ -194,7 +193,7 @@ export default function Reports() {
         .join(" | ");
 
       return {
-        Fecha: d.toLocaleDateString("es-AR"),
+        Fecha: d ? d.toLocaleDateString("es-AR") : "",
         Cliente: clientName,
         Repartidor: driverName,
         Items: itemsStr,
@@ -245,12 +244,18 @@ export default function Reports() {
           <Button
             className="w-auto px-6"
             onClick={downloadXlsx}
-            disabled={orders.length === 0}
+            disabled={loading || Boolean(rangeError) || orders.length === 0}
           >
             Descargar reporte
           </Button>
         </div>
       </div>
+
+      {rangeError ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {rangeError}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-3 min-w-0">
@@ -325,8 +330,11 @@ export default function Reports() {
         />
         <KpiCard label="Volumen agua" value={`${kpis.waterUnits}`} />
         <KpiCard label="Volumen otros" value={`${kpis.otherUnits}`} />
-        <KpiCard label="Ordenes" value={`${orders.length}`} />
-        <KpiCard label="Estado" value={loading ? "Cargando..." : "OK"} />
+        <KpiCard label="Entregas" value={`${kpis.completed}`} />
+        <KpiCard
+          label="No estaba"
+          value={loading ? "Cargando..." : `${kpis.failed}`}
+        />
       </div>
 
       <Toast message={toast} onClear={() => setToast("")} />

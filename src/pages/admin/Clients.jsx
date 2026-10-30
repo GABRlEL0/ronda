@@ -9,28 +9,19 @@ import {
   listenClients,
   updateClient,
 } from "../../services/clients";
+import { getClientRouteDays, ROUTE_DAYS } from "../../lib/days";
+import { WATER_STATUS_DOT, WATER_STATUS_RANK, waterStatus } from "../../lib/clients";
 
-const DAYS = [
-  "Lunes",
-  "Martes",
-  "Miercoles",
-  "Jueves",
-  "Viernes",
-  "Sabado",
-  "Domingo",
-];
-const DAY_ORDER = DAYS.reduce((acc, day, idx) => {
-  acc[day] = idx;
-  return acc;
-}, {});
+const DAY_ORDER = Object.fromEntries(ROUTE_DAYS.map((day, idx) => [day, idx]));
 
 const emptyForm = {
   name: "",
   address: "",
   phone: "",
-  routeDays: [DAYS[0]],
+  routeDays: [ROUTE_DAYS[0]],
   balanceMoney: "0",
-  balanceDelta: "0",
+  balanceAdjustType: "debt",
+  balanceAdjustAmount: "",
   balanceBottles: "0",
   dispenserCount: "0",
   consumptionCycle: "7",
@@ -38,23 +29,15 @@ const emptyForm = {
   defaultLoadSoda: "0",
 };
 
-function daysSince(timestamp) {
-  if (!timestamp) return null;
-  const date =
-    typeof timestamp?.toDate === "function" ? timestamp.toDate() : new Date(timestamp);
-  if (Number.isNaN(date?.getTime?.())) return null;
-  const diffMs = Date.now() - date.getTime();
-  return diffMs / (1000 * 60 * 60 * 24);
+function toNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
-function waterStatus(client) {
-  const cycle = Number(client?.consumptionCycle ?? 7);
-  const safeCycle = Number.isFinite(cycle) && cycle > 0 ? cycle : 7;
-  const days = daysSince(client?.lastWaterDate);
-  if (days == null) return "neutral";
-  if (days < safeCycle * 0.5) return "green";
-  if (days < safeCycle) return "yellow";
-  return "red";
+// El saldo $ es deuda: positivo = el cliente debe. Un pago la reduce.
+function balanceDeltaFromForm(form) {
+  const amount = Math.abs(toNumber(form.balanceAdjustAmount));
+  return form.balanceAdjustType === "payment" ? -amount : amount;
 }
 
 export default function AdminClients() {
@@ -66,14 +49,21 @@ export default function AdminClients() {
   const [toast, setToast] = useState("");
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const [requestedPage, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
-    const unsubscribe = listenClients((items) => {
-      setClients(items);
-      setLoading(false);
-    });
+    const unsubscribe = listenClients(
+      (items) => {
+        setClients(items);
+        setLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setToast("No se pudieron cargar los clientes.");
+        setLoading(false);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
@@ -89,12 +79,12 @@ export default function AdminClients() {
       name: client.name ?? "",
       address: client.address ?? "",
       phone: client.phone ?? "",
-      routeDays:
-        client.routeDays && client.routeDays.length > 0
-          ? client.routeDays
-          : [client.routeDay ?? DAYS[0]],
+      routeDays: getClientRouteDays(client).length
+        ? getClientRouteDays(client)
+        : [ROUTE_DAYS[0]],
       balanceMoney: client.balanceMoney ?? 0,
-      balanceDelta: "0",
+      balanceAdjustType: "payment",
+      balanceAdjustAmount: "",
       balanceBottles: client.balanceBottles ?? 0,
       dispenserCount: client.dispenserCount ?? 0,
       consumptionCycle: client.consumptionCycle ?? 7,
@@ -109,58 +99,59 @@ export default function AdminClients() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const payload = useMemo(() => {
-    const moneyValue = Number(form.balanceMoney);
-    const deltaValue = Number(form.balanceDelta);
-    const bottlesValue = Number(form.balanceBottles);
-    const dispenserCountValue = Number(form.dispenserCount);
-    const cycleValue = Number(form.consumptionCycle);
-    const loadWater = Number(form.defaultLoadWater);
-    const loadSoda = Number(form.defaultLoadSoda);
-    const routeDaysValue =
+  // Campos que edita el formulario. NO incluye routeOrder, lastOrderDate ni
+  // lastWaterDate: esos los mantiene la operación y no deben pisarse al editar.
+  const buildFormFields = () => {
+    const routeDays =
       Array.isArray(form.routeDays) && form.routeDays.length > 0
         ? form.routeDays
-        : [DAYS[0]];
-
-    const currentMoney = Number.isNaN(moneyValue) ? 0 : moneyValue;
-    const deltaMoney = Number.isNaN(deltaValue) ? 0 : deltaValue;
-
+        : [ROUTE_DAYS[0]];
     return {
       name: form.name.trim(),
       address: form.address.trim(),
       phone: form.phone.trim(),
-      routeDays: routeDaysValue,
-      routeDay: routeDaysValue[0],
-      routeOrder: 9999,
-      balanceMoney: currentMoney + deltaMoney,
-      balanceBottles: Number.isNaN(bottlesValue) ? 0 : bottlesValue,
-      dispenserCount: Number.isNaN(dispenserCountValue)
-        ? 0
-        : dispenserCountValue,
-      lastOrderDate: null,
-      lastWaterDate: null,
-      consumptionCycle: Number.isNaN(cycleValue) ? 7 : cycleValue,
+      routeDays,
+      routeDay: routeDays[0],
+      dispenserCount: toNumber(form.dispenserCount),
+      consumptionCycle: toNumber(form.consumptionCycle, 7),
       defaultLoad: {
-        water: Number.isNaN(loadWater) ? 0 : loadWater,
-        soda: Number.isNaN(loadSoda) ? 0 : loadSoda,
+        water: toNumber(form.defaultLoadWater),
+        soda: toNumber(form.defaultLoadSoda),
       },
     };
-  }, [form]);
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    if (!payload.name || !payload.address) {
+    const fields = buildFormFields();
+    if (!fields.name || !fields.address) {
       setToast("Nombre y dirección son obligatorios.");
       return;
     }
 
+    const balanceDelta = balanceDeltaFromForm(form);
+    const balanceBottles = toNumber(form.balanceBottles);
+
     try {
       if (editing) {
-        await updateClient(editing.id, payload);
+        const update = { ...fields };
+        // Sólo escribir envases si el admin los cambió (evita pisar una entrega
+        // registrada mientras el formulario estaba abierto).
+        if (balanceBottles !== toNumber(editing.balanceBottles)) {
+          update.balanceBottles = balanceBottles;
+        }
+        await updateClient(editing.id, update, { balanceDelta });
         setToast("Cliente actualizado.");
       } else {
-        await createClient(payload);
+        await createClient({
+          ...fields,
+          routeOrder: 9999,
+          balanceMoney: toNumber(form.balanceMoney) + balanceDelta,
+          balanceBottles,
+          lastOrderDate: null,
+          lastWaterDate: null,
+        });
         setToast("Cliente creado.");
       }
       setOpen(false);
@@ -190,34 +181,22 @@ export default function AdminClients() {
           return String(a.name || "").localeCompare(String(b.name || "")) * dir;
         case "routeDay": {
           const minIndex = (client) => {
-            const days = client.routeDays?.length
-              ? client.routeDays
-              : client.routeDay
-              ? [client.routeDay]
-              : [];
+            const days = getClientRouteDays(client);
             if (!days.length) return Number.POSITIVE_INFINITY;
             return Math.min(
               ...days.map((d) => DAY_ORDER[d] ?? Number.POSITIVE_INFINITY)
             );
           };
-          const aIdx = minIndex(a);
-          const bIdx = minIndex(b);
-          return (aIdx - bIdx) * dir;
+          return (minIndex(a) - minIndex(b)) * dir;
         }
         case "balanceMoney":
           return (Number(a.balanceMoney ?? 0) - Number(b.balanceMoney ?? 0)) * dir;
         case "dispenserCount":
           return (Number(a.dispenserCount ?? 0) - Number(b.dispenserCount ?? 0)) * dir;
-        case "status": {
-          const rank = (client) => {
-            const s = waterStatus(client);
-            if (s === "red") return 3;
-            if (s === "yellow") return 2;
-            if (s === "green") return 1;
-            return 0;
-          };
-          return (rank(a) - rank(b)) * dir;
-        }
+        case "status":
+          return (
+            (WATER_STATUS_RANK[waterStatus(a)] - WATER_STATUS_RANK[waterStatus(b)]) * dir
+          );
         default:
           return 0;
       }
@@ -234,6 +213,8 @@ export default function AdminClients() {
   }, [search, sortedClients]);
 
   const totalPages = Math.max(1, Math.ceil(filteredClients.length / pageSize));
+  // Si la lista se achica (búsqueda, borrado) la página se ajusta sola.
+  const page = Math.min(requestedPage, totalPages);
 
   const paginatedClients = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -248,16 +229,6 @@ export default function AdminClients() {
       return { key, dir: "asc" };
     });
   };
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, pageSize]);
-
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
 
   return (
     <section className="space-y-6">
@@ -296,7 +267,10 @@ export default function AdminClients() {
             </span>
             <Input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
               placeholder="Buscar cliente por nombre"
               className="h-10 rounded-xl py-2 pl-10 pr-3 text-sm"
             />
@@ -305,7 +279,10 @@ export default function AdminClients() {
             Por pagina
             <select
               value={pageSize}
-              onChange={(event) => setPageSize(Number(event.target.value))}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
               className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             >
               <option value={25}>25</option>
@@ -409,13 +386,9 @@ export default function AdminClients() {
                   >
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex h-3 w-3 rounded-full ${(() => {
-                          const status = waterStatus(client);
-                          if (status === "green") return "bg-emerald-500";
-                          if (status === "yellow") return "bg-amber-400";
-                          if (status === "red") return "bg-rose-500";
-                          return "bg-slate-300";
-                        })()}`}
+                        className={`inline-flex h-3 w-3 rounded-full ${
+                          WATER_STATUS_DOT[waterStatus(client)]
+                        }`}
                         title="Estado de agua"
                       />
                     </td>
@@ -424,9 +397,7 @@ export default function AdminClients() {
                     </td>
                     <td className="px-4 py-3">{client.address}</td>
                     <td className="px-4 py-3">
-                      {(client.routeDays && client.routeDays.length > 0
-                        ? client.routeDays
-                        : [client.routeDay]).filter(Boolean).join(", ")}
+                      {getClientRouteDays(client).join(", ")}
                     </td>
                     <td className="px-4 py-3 text-sm font-semibold text-slate-700">
                       ${Number(client.balanceMoney ?? 0).toFixed(0)}
@@ -469,7 +440,7 @@ export default function AdminClients() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                onClick={() => setPage(Math.max(1, page - 1))}
                 disabled={page === 1}
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -480,7 +451,7 @@ export default function AdminClients() {
               </span>
               <button
                 type="button"
-                onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                onClick={() => setPage(Math.min(totalPages, page + 1))}
                 disabled={page === totalPages}
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -522,7 +493,7 @@ export default function AdminClients() {
             <label className="block text-sm font-medium text-slate-700">
               Días de visita
               <div className="mt-2 flex flex-wrap gap-2">
-                {DAYS.map((day) => {
+                {ROUTE_DAYS.map((day) => {
                   const active = form.routeDays?.includes(day);
                   return (
                     <button
@@ -567,20 +538,47 @@ export default function AdminClients() {
                   disabled
                 />
               </label>
-              <label className="block text-sm font-medium text-slate-700">
-                Ajuste de saldo
+              <div className="block text-sm font-medium text-slate-700">
+                {editing ? "Ajuste de saldo" : "Saldo inicial"}
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  {[
+                    { value: "debt", label: "Cargar deuda" },
+                    { value: "payment", label: "Registrar pago" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() =>
+                        setForm((prev) => ({ ...prev, balanceAdjustType: opt.value }))
+                      }
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                        form.balanceAdjustType === opt.value
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
                 <Input
-                  name="balanceDelta"
+                  name="balanceAdjustAmount"
                   type="number"
+                  min="0"
                   step="0.01"
                   inputMode="decimal"
-                  value={form.balanceDelta}
+                  placeholder="Monto ($)"
+                  value={form.balanceAdjustAmount}
                   onChange={handleChange}
                 />
                 <span className="mt-1 block text-xs text-slate-500">
-                  Positivo si paga, negativo si se carga deuda inicial.
+                  Saldo resultante:{" "}
+                  <span className="font-semibold text-slate-900">
+                    ${(toNumber(form.balanceMoney) + balanceDeltaFromForm(form)).toFixed(0)}
+                  </span>{" "}
+                  (positivo = debe)
                 </span>
-              </label>
+              </div>
               <label className="block text-sm font-medium text-slate-700">
                 Saldo envases
                 <Input

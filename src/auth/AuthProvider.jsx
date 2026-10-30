@@ -10,10 +10,14 @@ import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase/config";
 import { AuthContext } from "./authContext";
 
+// Un usuario desactivado (active === false) no tiene rol: las reglas de
+// Firestore igual le bloquean el acceso, así evitamos mostrarle pantallas vacías.
 async function fetchUserRole(uid) {
   const snapshot = await getDoc(doc(db, "users", uid));
   if (!snapshot.exists()) return null;
-  return snapshot.data()?.role ?? null;
+  const data = snapshot.data();
+  if (data?.active === false) return null;
+  return data?.role ?? null;
 }
 
 export function AuthProvider({ children }) {
@@ -26,6 +30,7 @@ export function AuthProvider({ children }) {
 
     const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
       setUser(nextUser);
+      setLoading(true);
 
       if (!nextUser) {
         setRole(null);

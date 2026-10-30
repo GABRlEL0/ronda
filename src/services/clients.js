@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  increment,
   limit,
   onSnapshot,
   orderBy,
@@ -14,15 +15,21 @@ import { db } from "../firebase/config";
 
 const collectionRef = collection(db, "clients");
 
-export function listenClients(callback) {
-  const q = query(collectionRef, orderBy("routeDay"), orderBy("name"));
-  return onSnapshot(q, (snapshot) => {
-    const items = snapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
-    callback(items);
-  });
+// Todos los clientes. Ordenar sólo por `name`: un orderBy sobre otro campo
+// (ej. routeDay) excluye silenciosamente los documentos que no lo tienen.
+export function listenClients(callback, onError) {
+  const q = query(collectionRef, orderBy("name"));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+      callback(items);
+    },
+    onError
+  );
 }
 
 export function listenAllClients(callback, limitCount = 300) {
@@ -44,11 +51,14 @@ export async function createClient(payload) {
   });
 }
 
-export async function updateClient(id, payload) {
-  return updateDoc(doc(db, "clients", id), {
-    ...payload,
-    updatedAt: serverTimestamp(),
-  });
+// `balanceDelta` se aplica como incremento atómico para no pisar un saldo que
+// haya cambiado (ej. una entrega del repartidor) mientras el admin editaba.
+export async function updateClient(id, payload, { balanceDelta = 0 } = {}) {
+  const update = { ...payload, updatedAt: serverTimestamp() };
+  if (Number.isFinite(balanceDelta) && balanceDelta !== 0) {
+    update.balanceMoney = increment(balanceDelta);
+  }
+  return updateDoc(doc(db, "clients", id), update);
 }
 
 export async function deleteClient(id) {

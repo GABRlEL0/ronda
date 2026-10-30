@@ -26,21 +26,35 @@ service cloud.firestore {
       return isActive() && userDoc().data.role == 'driver';
     }
 
+    function inviteFor(email) {
+      return get(/databases/$(database)/documents/invites/$(email));
+    }
+
     match /users/{userId} {
       allow read: if isAdmin() || request.auth.uid == userId;
       // User documents are created by the user at /register after a valid invite.
+      // The role must be the one in the invite (no self-promotion to admin).
       allow create: if signedIn()
         && request.auth.uid == userId
         && request.auth.token.email != null
         && exists(/databases/$(database)/documents/invites/$(request.auth.token.email))
-        && get(/databases/$(database)/documents/invites/$(request.auth.token.email)).data.used == false;
+        && inviteFor(request.auth.token.email).data.used == false
+        && request.resource.data.role == inviteFor(request.auth.token.email).data.role
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.active == true;
       allow update, delete: if isAdmin();
     }
 
     match /clients/{clientId} {
       allow read: if isActive();
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() || isDriver();
+      // Drivers only touch what a delivery or a route reorder changes.
+      allow update: if isAdmin()
+        || (isDriver()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'balanceMoney', 'balanceBottles', 'lastOrderDate', 'lastWaterDate',
+            'routeOrder', 'routeOrderByDay'
+          ]));
     }
 
     match /products/{productId} {

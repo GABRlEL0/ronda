@@ -10,6 +10,7 @@ description: build, commit a GitHub y subir al FTP de duts.com.ar
 ```bash
 brew install lftp
 chmod +x deploy.sh
+cp .env.deploy.example .env.deploy   # completar FTP_PASS (no se commitea)
 ```
 
 ## Datos del hosting

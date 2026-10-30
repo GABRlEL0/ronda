@@ -2,129 +2,73 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
   query,
   where,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase/config";
+import { getRouteOrder } from "../lib/days";
 
 const collectionRef = collection(db, "clients");
 
-export function listenClientsByDay(day, callback) {
-  const qArray = query(
-    collectionRef,
-    where("routeDays", "array-contains", day),
-    orderBy("routeOrder", "asc")
-  );
-  const qSingle = query(
-    collectionRef,
-    where("routeDay", "==", day),
-    orderBy("routeOrder", "asc")
-  );
+// Escucha los clientes de un día. Combina `routeDays` (actual) y `routeDay`
+// (legacy, clientes viejos con un solo día) y los ordena por el orden de ese día.
+// callback(items, hasPendingWrites)
+export function listenClientsByDay(day, callback, onError) {
+  const queries = [
+    query(collectionRef, where("routeDays", "array-contains", day)),
+    query(collectionRef, where("routeDay", "==", day)),
+  ];
 
-  let itemsArray = [];
-  let itemsSingle = [];
+  const results = queries.map(() => ({ items: [], pending: false, ready: false }));
 
   const emit = () => {
+    if (!results.every((r) => r.ready)) return;
     const map = new Map();
-    [...itemsSingle, ...itemsArray].forEach((item) => {
-      map.set(item.id, item);
-    });
+    results.forEach((r) => r.items.forEach((item) => map.set(item.id, item)));
     const merged = Array.from(map.values()).sort(
-      (a, b) => Number(a.routeOrder ?? 0) - Number(b.routeOrder ?? 0)
+      (a, b) => getRouteOrder(a, day) - getRouteOrder(b, day)
     );
-    callback(merged);
+    callback(
+      merged,
+      results.some((r) => r.pending)
+    );
   };
 
-  const unsubArray = onSnapshot(qArray, (snapshot) => {
-    itemsArray = snapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
-    emit();
-  });
+  const unsubs = queries.map((q, idx) =>
+    onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        results[idx] = {
+          items: snapshot.docs.map((d) => ({ id: d.id, ...d.data() })),
+          pending: snapshot.metadata.hasPendingWrites,
+          ready: true,
+        };
+        emit();
+      },
+      (error) => {
+        console.error(error);
+        results[idx] = { ...results[idx], ready: true };
+        onError?.(error);
+        emit();
+      }
+    )
+  );
 
-  const unsubSingle = onSnapshot(qSingle, (snapshot) => {
-    itemsSingle = snapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
-    emit();
-  });
-
-  return () => {
-    unsubArray();
-    unsubSingle();
-  };
+  return () => unsubs.forEach((unsub) => unsub());
 }
 
-export function listenClientsByDayWithMeta(day, callback) {
-  const qArray = query(
-    collectionRef,
-    where("routeDays", "array-contains", day),
-    orderBy("routeOrder", "asc")
-  );
-  const qSingle = query(
-    collectionRef,
-    where("routeDay", "==", day),
-    orderBy("routeOrder", "asc")
-  );
-
-  let itemsArray = [];
-  let itemsSingle = [];
-  let metaArray = false;
-  let metaSingle = false;
-
-  const emit = () => {
-    const map = new Map();
-    [...itemsSingle, ...itemsArray].forEach((item) => {
-      map.set(item.id, item);
-    });
-    const merged = Array.from(map.values()).sort(
-      (a, b) => Number(a.routeOrder ?? 0) - Number(b.routeOrder ?? 0)
-    );
-    callback(merged, metaArray || metaSingle);
-  };
-
-  const unsubArray = onSnapshot(
-    qArray,
-    { includeMetadataChanges: true },
-    (snapshot) => {
-      itemsArray = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      metaArray = snapshot.metadata.hasPendingWrites;
-      emit();
-    }
-  );
-
-  const unsubSingle = onSnapshot(
-    qSingle,
-    { includeMetadataChanges: true },
-    (snapshot) => {
-      itemsSingle = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      metaSingle = snapshot.metadata.hasPendingWrites;
-      emit();
-    }
-  );
-
-  return () => {
-    unsubArray();
-    unsubSingle();
-  };
-}
-
-export async function saveRouteOrderBatch(clients) {
+// Guarda el orden de visita de un día. Se escribe en `routeOrderByDay.<día>` para
+// que un cliente con varios días tenga un orden independiente en cada uno.
+// Se mantiene `routeOrder` sólo si el cliente visita un único día (compatibilidad).
+export async function saveRouteOrderBatch(day, clients) {
   const batch = writeBatch(db);
   clients.forEach((client, index) => {
-    batch.update(doc(db, "clients", client.id), {
-      routeOrder: index,
-    });
+    const update = { [`routeOrderByDay.${day}`]: index };
+    const days = Array.isArray(client.routeDays) ? client.routeDays : [];
+    if (days.length <= 1) update.routeOrder = index;
+    batch.update(doc(db, "clients", client.id), update);
   });
   await batch.commit();
 }

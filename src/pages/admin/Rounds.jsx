@@ -20,10 +20,9 @@ import {
   listenClientsByDay,
   saveRouteOrderBatch,
 } from "../../services/routes";
+import { getRouteOrder, ROUTE_DAYS } from "../../lib/days";
 
-const DAYS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
-
-function SortableRow({ client, index }) {
+function SortableRow({ client, index, day }) {
   const {
     attributes,
     listeners,
@@ -62,14 +61,17 @@ function SortableRow({ client, index }) {
         <p className="text-xs text-slate-500">{client.address}</p>
       </div>
       <div className="text-xs font-semibold text-slate-400">
-        #{client.routeOrder ?? index}
+        #{(() => {
+          const order = getRouteOrder(client, day);
+          return Number.isFinite(order) && order < Number.MAX_SAFE_INTEGER ? order : "-";
+        })()}
       </div>
     </div>
   );
 }
 
 export default function AdminRounds() {
-  const [day, setDay] = useState(DAYS[0]);
+  const [day, setDay] = useState(ROUTE_DAYS[0]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -84,11 +86,15 @@ export default function AdminRounds() {
 
   useEffect(() => {
     setLoading(true);
-    const unsubscribe = listenClientsByDay(day, (items) => {
-      setClients(items);
-      setLoading(false);
-      setIsDirty(false);
-    });
+    const unsubscribe = listenClientsByDay(
+      day,
+      (items) => {
+        setClients(items);
+        setLoading(false);
+        setIsDirty(false);
+      },
+      () => setToast("No se pudieron cargar los clientes del día.")
+    );
     return () => unsubscribe();
   }, [day]);
 
@@ -107,7 +113,7 @@ export default function AdminRounds() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await saveRouteOrderBatch(clients);
+      await saveRouteOrderBatch(day, clients);
       setToast("Orden guardado.");
       setIsDirty(false);
     } catch (error) {
@@ -139,7 +145,7 @@ export default function AdminRounds() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {DAYS.map((item) => (
+        {ROUTE_DAYS.map((item) => (
           <button
             key={item}
             type="button"
@@ -177,6 +183,7 @@ export default function AdminRounds() {
                     key={client.id}
                     client={client}
                     index={index}
+                    day={day}
                   />
                 ))}
               </div>
