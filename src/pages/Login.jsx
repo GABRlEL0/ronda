@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
+import { sendPasswordResetEmail } from "firebase/auth";
 import { useAuth } from "../auth/authContext";
+import { auth } from "../firebase/config";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -11,6 +13,31 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+
+  const handleResetPassword = async () => {
+    setError("");
+    setInfo("");
+    const safeEmail = email.trim().toLowerCase();
+    if (!safeEmail) {
+      setError("Escribí tu email arriba y volvé a tocar \"¿Olvidaste tu contraseña?\".");
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, safeEmail);
+    } catch (err) {
+      console.error(err);
+      if (err?.code === "auth/invalid-email") {
+        setError("El email no es válido.");
+        return;
+      }
+      // Otros errores (ej. usuario inexistente) se muestran igual que el éxito
+      // para no revelar qué emails están registrados.
+    }
+    setInfo(
+      `Si ${safeEmail} tiene cuenta, te enviamos un email para crear una nueva contraseña. Revisá también la carpeta de spam.`
+    );
+  };
 
   useEffect(() => {
     if (user && role === "admin") {
@@ -72,6 +99,12 @@ export default function Login() {
             />
           </label>
 
+          {info ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {info}
+            </div>
+          ) : null}
+
           {error ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
@@ -81,6 +114,13 @@ export default function Login() {
           <Button type="submit" disabled={loading}>
             {loading ? "Ingresando..." : "Ingresar"}
           </Button>
+          <button
+            type="button"
+            onClick={handleResetPassword}
+            className="w-full text-center text-sm font-semibold text-slate-500 underline-offset-4 hover:text-slate-800 hover:underline"
+          >
+            ¿Olvidaste tu contraseña?
+          </button>
         </form>
 
         <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
