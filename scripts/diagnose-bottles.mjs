@@ -8,16 +8,14 @@
 // Este script no escribe nada. Lista, por cliente, cuántos envases faltan sumar.
 //
 // Uso:
-//   SEED_EMAIL=admin@... SEED_PASSWORD=... npm run diagnose:bottles
+//   npm run diagnose:bottles   (pide email y contraseña de un admin)
 //   (opcional) --csv para salida separada por comas
 
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import { signInAdmin } from "./lib/admin-login.mjs";
 import { collection, getDocs, getFirestore } from "firebase/firestore";
 
 const CSV = process.argv.includes("--csv");
-const email = process.env.SEED_EMAIL;
-const password = process.env.SEED_PASSWORD;
 
 const firebaseConfig = {
   apiKey: process.env.VITE_FIREBASE_API_KEY,
@@ -32,14 +30,10 @@ if (Object.values(firebaseConfig).some((v) => !v)) {
   console.error("Faltan variables VITE_FIREBASE_* (correr con node --env-file=.env).");
   process.exit(1);
 }
-if (!email || !password) {
-  console.error("Definí SEED_EMAIL y SEED_PASSWORD de un usuario admin.");
-  process.exit(1);
-}
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-await signInWithEmailAndPassword(getAuth(app), email, password);
+await signInAdmin(app);
 
 const toMillis = (v) => (typeof v?.toMillis === "function" ? v.toMillis() : null);
 

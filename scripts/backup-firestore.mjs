@@ -2,7 +2,7 @@
 // Usa un usuario admin de la app (las reglas le permiten leer todo).
 //
 // Uso:
-//   SEED_EMAIL=admin@... SEED_PASSWORD=... npm run backup
+//   npm run backup   (pide email y contraseña de un admin)
 //   (opcional) --out <carpeta>   por defecto ../ronda-backups/<fecha-hora>
 //
 // Los timestamps se guardan como { __ts: <ISO> } para poder restaurarlos.
@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import { signInAdmin } from "./lib/admin-login.mjs";
 import { collection, getDocs, getFirestore, Timestamp } from "firebase/firestore";
 
 const COLLECTIONS = ["clients", "products", "orders", "users", "invites"];
@@ -33,12 +33,6 @@ if (Object.values(firebaseConfig).some((v) => !v)) {
   console.error("Faltan variables VITE_FIREBASE_* (correr con node --env-file=.env).");
   process.exit(1);
 }
-const email = process.env.SEED_EMAIL;
-const password = process.env.SEED_PASSWORD;
-if (!email || !password) {
-  console.error("Definí SEED_EMAIL y SEED_PASSWORD de un usuario admin.");
-  process.exit(1);
-}
 
 const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
 const outDir = resolve(getArg("out") || join("..", "ronda-backups", stamp));
@@ -58,7 +52,7 @@ function serialize(value) {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-await signInWithEmailAndPassword(getAuth(app), email, password);
+await signInAdmin(app);
 
 const summary = { project: firebaseConfig.projectId, createdAt: new Date().toISOString() };
 for (const name of COLLECTIONS) {

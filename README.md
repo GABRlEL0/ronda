@@ -55,8 +55,12 @@ firebase deploy --only firestore:rules --project sodero-app
 firebase deploy --only firestore:indexes --project sodero-app
 ```
 
+## Backup de datos
+`npm run backup` (pide email y contraseña de un admin) guarda todas las colecciones en
+`../ronda-backups/<fecha>/` como JSON. Solo lectura.
+
 ## Diagnostico de envases
-`npm run diagnose:bottles` (con `SEED_EMAIL`/`SEED_PASSWORD` de un admin) lista, solo
+`npm run diagnose:bottles` (pide email y contraseña de un admin) lista, solo
 lectura, los clientes cuyo saldo de envases quedo mal por el bug de devoluciones en
 entregas con varios productos.
 
